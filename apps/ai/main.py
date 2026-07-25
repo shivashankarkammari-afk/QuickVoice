@@ -20,6 +20,7 @@ from handlers.config_handler import get_config
 from handlers.finalization_handler import CallFinalizer
 from handlers.livekit_handler import recording_path as build_recording_path, start_recording
 from handlers.live_transcript_publisher import LiveTranscriptPublisher
+from handlers.langfuse_handler import setup_langfuse
 from handlers.http_tool_handler import build_http_tool_instructions, call_http_tool, parse_http_tool_arguments
 from handlers.mcp_handler import build_mcp_tool_instructions, call_mcp_tool, parse_arguments_json
 from handlers.privacy_handler import should_store_call_audio
@@ -478,6 +479,12 @@ async def entrypoint(ctx: JobContext):
         config = apply_metadata_overrides(config, metadata)
         config = attach_resolved_voice_config(config)
     logger.info("Config loaded for agent: {}", redact_sensitive(config.get("agent_id")))
+    trace_provider = setup_langfuse(
+        metadata={
+            "langfuse.session.id": ctx.room.name,
+            "langfuse.session.agent_id": str(call_context.get("agent_id") or config.get("agent_id") or ""),
+        }
+    )
 
     try:
         await flush_call_log_queue()
@@ -598,7 +605,12 @@ async def entrypoint(ctx: JobContext):
     )
     shutdown_reason = "session_shutdown"
 
-    async def unified_shutdown_hook():
+    async def unified_shutdown_hook()
+            if trace_provider is not None:
+                        try:
+                                trace_provider.force_flush()
+                        except Exception as error:
+                                logger.warning("[langfuse] failed to flush traces: {}", redact_sensitive(str(error)))
         try:
             await live_transcript_publisher.close(reason=shutdown_reason)
         except Exception as error:
